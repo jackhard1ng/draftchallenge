@@ -190,6 +190,8 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--black);color:var(--
 .tc:hover:not(.gone):not(.off){border-left-color:var(--fire);background:var(--d2)}
 .tc.gone{opacity:.15;pointer-events:none}.tc.gone .tc-n{text-decoration:line-through}
 .tc.off{opacity:.3;pointer-events:none}
+.tc.mine{border-left-color:var(--mint);background:var(--mint-bg)}
+.tc.mine .tc-n{color:var(--mint)}
 .tc .tc-s{font-family:'Chakra Petch',sans-serif;font-weight:700;font-size:.8rem;color:var(--g2);text-align:center}
 .tc .tc-n{font-size:.72rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tc .tc-r{font-size:.5rem;color:var(--g1)}
@@ -251,6 +253,26 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--black);color:var(--
 .adm-row .ai-info{color:var(--g1);font-size:.6rem;min-width:50px;font-family:'IBM Plex Mono',monospace}
 .adm-row .ai-nm{flex:1;font-weight:600}
 .adm-row .ai-pt{font-family:'IBM Plex Mono',monospace;font-size:.55rem;color:var(--gold)}
+/* Matchup admin */
+.adm-mu{display:flex;gap:2px;margin-bottom:3px;align-items:stretch}
+.adm-mu .am-team{flex:1;display:flex;align-items:center;gap:.3rem;padding:.3rem .4rem;background:var(--d1);border:1px solid var(--d3);cursor:pointer;transition:all .12s;font-size:.72rem}
+.adm-mu .am-team:hover{border-color:var(--mint);background:var(--mint-bg)}
+.adm-mu .am-team.won{border-color:var(--mint);background:var(--mint-bg);font-weight:700}
+.adm-mu .am-team.lost{opacity:.25;border-color:var(--d3)}
+.adm-mu .am-team .ams{font-family:'Chakra Petch',sans-serif;font-weight:700;font-size:.75rem;color:var(--g2);min-width:16px;text-align:center}
+.adm-mu .am-team .amn{flex:1;font-weight:600}
+.adm-mu .am-team .amp{font-family:'IBM Plex Mono',monospace;font-size:.5rem;color:var(--gold)}
+.adm-mu .am-vs{font-size:.5rem;color:var(--g1);display:flex;align-items:center;padding:0 .2rem}
+.adm-undo{font-size:.55rem;color:var(--g2);background:none;border:1px solid var(--d4);padding:.15rem .3rem;margin-left:.2rem;transition:all .1s}
+.adm-undo:hover{color:var(--fire);border-color:var(--fire)}
+/* Pre-draft chat */
+.chat-box{background:var(--d1);border:1px solid var(--d3);padding:.4rem;margin-top:.5rem;max-height:200px;overflow-y:auto}
+.chat-msg{font-size:.7rem;padding:.15rem 0;border-bottom:1px solid var(--d2)}
+.chat-msg .cm-name{font-weight:600;color:var(--gold);margin-right:.3rem}
+.chat-msg .cm-text{color:var(--g3)}
+.chat-input{display:flex;gap:.3rem;margin-top:.3rem}
+.chat-input .inp{font-size:.78rem;padding:.3rem .5rem}
+.chat-input button{padding:.3rem .6rem;font-size:.72rem}
 
 /* ═══ SCORING REF ═══ */
 .sref{background:var(--d1);padding:.5rem;margin-top:.8rem;border-top:1px solid var(--d3)}
@@ -279,6 +301,7 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--black);color:var(--
 <div class="pnl" id="p-rost"></div>
 <div class="pnl" id="p-brk"></div>
 <div class="pnl" id="p-adm"></div>
+<div class="pnl" id="p-groups"></div>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
@@ -457,8 +480,10 @@ function joinGroup(){
 
 function enterGroup(gid){
   if(S.listener)db.ref(`groups/${S.gid}`).off("value",S.listener);
+  if(S.gid)db.ref(`groups/${S.gid}/chat`).off();
   S.gid=gid;S.tab="draft";S.filter="all";
   S.listener=db.ref(`groups/${gid}`).on("value",snap=>{S.group=snap.val();if(S.group)render();});
+  listenChat();
 }
 
 function backToGate(){
@@ -471,6 +496,7 @@ function backToGate(){
 function showNav(){
   const isCom=S.me===S.group?.commissioner;
   let h=`<button class="back" onclick="backToGate()">\u2190</button>`;
+  h+=`<button class="ni ${S.tab==='groups'?'on':''}" data-t="groups" onclick="stab('groups')" style="color:var(--sky)">Groups</button>`;
   const tabs=[["draft","Draft"],["lb","Standings"],["rost","Rosters"],["brk","Bracket"]];
   if(isAdmin)tabs.push(["adm","Admin"]);
   tabs.forEach(([k,l])=>h+=`<button class="ni ${S.tab===k?'on':''} ${k==='adm'?'adm':''}" data-t="${k}" onclick="stab('${k}')">${l}</button>`);
@@ -483,8 +509,9 @@ function render(){
   document.querySelectorAll(".pnl").forEach(p=>p.classList.remove("on"));
   showNav();
   if(S.group.status==="waiting"){document.getElementById("p-wait").classList.add("on");rWait();return;}
-  const m={draft:"p-draft",lb:"p-lb",rost:"p-rost",brk:"p-brk",adm:"p-adm"};
+  const m={draft:"p-draft",lb:"p-lb",rost:"p-rost",brk:"p-brk",adm:"p-adm",groups:"p-groups"};
   document.getElementById(m[S.tab]||"p-draft").classList.add("on");
+  if(S.tab==="groups"){rGroups();return;}
   ({draft:rDraft,lb:rLB,rost:rRost,brk:rBrk,adm:rAdm})[S.tab]?.();
 }
 
@@ -532,6 +559,10 @@ ${[15,30,45,60,90,120].map(v=>`<option value="${v}" ${timer===v?'selected':''}>$
     }
     h+=`</div>`;
   }else h+=`<div class="empty" style="padding:.8rem">Waiting for commissioner to start...</div>`;
+  // Chat
+  h+=`<div style="margin-top:.6rem"><div class="t-label" style="text-align:center;margin-bottom:.2rem">Group Chat</div>
+<div class="chat-box" id="chatBox"></div>
+<div class="chat-input"><input class="inp" id="chatMsg" placeholder="Type a message..." maxlength="200" onkeydown="if(event.key==='Enter')sendChat()"/><button class="b-fire" onclick="sendChat()" style="padding:.3rem .6rem;font-size:.72rem">Send</button></div></div>`;
   h+=sRef();
   document.getElementById("p-wait").innerHTML=h;
 }
@@ -667,14 +698,16 @@ function rDraft(){
   h+=`<div class="ftabs">`;
   h+=`<button class="ft ${S.filter==='all'?'on':''}" onclick="sf('all')">All</button>`;
   R.forEach(r=>h+=`<button class="ft ${S.filter===r?'on':''}" onclick="sf('${r}')">${r}</button>`);
-  h+=`<button class="ft ${S.filter==='avail'?'on':''}" onclick="sf('avail')">Open</button></div>`;
+  h+=`<button class="ft ${S.filter==='avail'?'on':''}" onclick="sf('avail')">Open</button>`;
+  h+=`<button class="ft ${S.filter==='mine'?'on':''}" onclick="sf('mine')" style="${S.filter==='mine'?'':''}">Mine</button></div>`;
 
   h+=`<div class="draft-grid"><div class="t-board">`;
-  T.filter(t=>{if(S.filter==="avail")return!gone.has(t.id);if(S.filter!=="all")return t.region===S.filter;return true;})
+  T.filter(t=>{if(S.filter==="avail")return!gone.has(t.id);if(S.filter==="mine")return owners[t.id]===S.me;if(S.filter!=="all")return t.region===S.filter;return true;})
   .sort((a,b)=>a.seed-b.seed||a.region.localeCompare(b.region)).forEach(t=>{
     const g2=gone.has(t.id),can=myTurn&&live&&!g2&&!ds.paused;
     const oName=owners[t.id]?g.players[owners[t.id]]?.name:"";
-    h+=`<div class="tc ${g2?'gone':''} ${!can&&!g2?'off':''}" ${can?`onclick="pick('${t.id}')"`:''}>
+    const isMine=owners[t.id]===S.me;
+    h+=`<div class="tc ${g2?'gone':''} ${!can&&!g2?'off':''} ${g2&&isMine?'mine':''}" ${can?`onclick="pick('${t.id}')"`:''}>
 <span class="tc-s">${t.seed}</span><div><div class="tc-n">${t.name}</div><div class="tc-r">${t.region}</div>${g2?`<div class="tc-o">${oName}</div>`:''}</div>
 <span class="tc-v">${SP[t.seed]}pt</span></div>`;
   });
@@ -792,26 +825,201 @@ function rBrk(){
 }
 
 // ═══ ADMIN ═══
+const MATCHUPS=[[1,16],[8,9],[5,12],[4,13],[6,11],[3,14],[7,10],[2,15]];
+
 function rAdm(){
   const g=S.group,res=g.results||{};
-  const rounds=[{n:"Round of 64",k:1},{n:"Round of 32",k:2},{n:"Sweet 16",k:3},{n:"Elite 8",k:4},{n:"Final Four",k:5},{n:"Championship",k:6}];
-  let h=`<div class="adm-panel"><div class="adm-h">Admin</div><div class="adm-sub">Record wins & eliminations</div>`;
+  const rounds=[
+    {n:"Round of 64",k:1,getMatchups:reg=>{
+      const rt=T.filter(t=>t.region===reg);
+      return MATCHUPS.map(([s1,s2])=>[rt.find(t=>t.seed===s1),rt.find(t=>t.seed===s2)]).filter(([a,b])=>a&&b);
+    }},
+    {n:"Round of 32",k:2,getMatchups:reg=>{
+      // Winners of R64 paired: 1/16 winner vs 8/9 winner, 5/12 vs 4/13, 6/11 vs 3/14, 7/10 vs 2/15
+      const rt=T.filter(t=>t.region===reg);
+      const r64w=MATCHUPS.map(([s1,s2])=>{
+        const t1=rt.find(t=>t.seed===s1),t2=rt.find(t=>t.seed===s2);
+        if(res[`${t1?.id}_r1`])return t1;if(res[`${t2?.id}_r1`])return t2;return null;
+      });
+      return [[0,1],[2,3],[4,5],[6,7]].map(([a,b])=>[r64w[a],r64w[b]]).filter(([a,b])=>a&&b);
+    }},
+    {n:"Sweet 16",k:3,getMatchups:reg=>{
+      const prev=T.filter(t=>t.region===reg&&res[`${t.id}_r2`]);
+      if(prev.length<2)return[];
+      const pairs=[];for(let i=0;i<prev.length;i+=2)if(prev[i+1])pairs.push([prev[i],prev[i+1]]);
+      return pairs;
+    }},
+    {n:"Elite 8",k:4,getMatchups:reg=>{
+      const prev=T.filter(t=>t.region===reg&&res[`${t.id}_r3`]);
+      if(prev.length<2)return[];
+      return [[prev[0],prev[1]]];
+    }},
+  ];
+
+  let h=`<div class="adm-panel"><div class="adm-h">Admin — Enter Results</div><div class="adm-sub">Click the winning team. Loser is auto-eliminated.</div>`;
+  
   rounds.forEach(r=>{
     h+=`<div class="adm-rd"><h3>${r.n} (&times;${RM[r.k]})</h3>`;
-    T.filter(t=>r.k===1||res[`${t.id}_r${r.k-1}`]).sort((a,b)=>a.region.localeCompare(b.region)||a.seed-b.seed).forEach(t=>{
-      const wk=`${t.id}_r${r.k}`,ek=`${t.id}_elim`,w=res[wk],e=res[ek];
-      const pts=SP[t.seed]*(RM[r.k]||1);
-      h+=`<div class="adm-row"><span class="ai-info">${t.seed} ${t.region}</span><span class="ai-nm">${t.name}</span><span class="ai-pt">${pts}</span>`;
-      if(w)h+=`<button class="b-mint" disabled>\u2713</button><button class="b-dim" onclick="rmR('${wk}')">Undo</button>`;
-      else if(e)h+=`<span style="color:var(--fire);font-size:.62rem">Out</span><button class="b-dim" onclick="rmR('${ek}')">Undo</button>`;
-      else h+=`<button class="b-mint" onclick="recW('${t.id}',${r.k})">W</button><button class="b-red" onclick="recE('${t.id}')">L</button>`;
+    R.forEach(reg=>{
+      const mus=r.getMatchups(reg);
+      if(!mus.length)return;
+      h+=`<div style="font-size:.58rem;color:var(--g1);margin:.2rem 0 .1rem;font-weight:600">${reg}</div>`;
+      mus.forEach(([t1,t2])=>{
+        if(!t1||!t2)return;
+        const w1=res[`${t1.id}_r${r.k}`],w2=res[`${t2.id}_r${r.k}`];
+        const decided=w1||w2;
+        h+=`<div class="adm-mu">`;
+        h+=`<div class="am-team ${w1?'won':''} ${w2?'lost':''}" onclick="${decided?'':`recMU('${t1.id}','${t2.id}',${r.k})`}"><span class="ams">${t1.seed}</span><span class="amn">${t1.name}</span><span class="amp">${SP[t1.seed]*(RM[r.k]||1)}</span></div>`;
+        h+=`<div class="am-vs">vs</div>`;
+        h+=`<div class="am-team ${w2?'won':''} ${w1?'lost':''}" onclick="${decided?'':`recMU('${t2.id}','${t1.id}',${r.k})`}"><span class="ams">${t2.seed}</span><span class="amn">${t2.name}</span><span class="amp">${SP[t2.seed]*(RM[r.k]||1)}</span></div>`;
+        if(decided)h+=`<button class="adm-undo" onclick="undoMU('${t1.id}','${t2.id}',${r.k})">undo</button>`;
+        h+=`</div>`;
+      });
+    });
+    h+=`</div>`;
+  });
+  
+  // Final Four and Championship (cross-region)
+  const e8winners=T.filter(t=>res[`${t.id}_r4`]);
+  if(e8winners.length>=2){
+    h+=`<div class="adm-rd"><h3>Final Four (&times;${RM[5]})</h3>`;
+    for(let i=0;i<e8winners.length;i+=2){
+      if(!e8winners[i+1])break;
+      const t1=e8winners[i],t2=e8winners[i+1];
+      const w1=res[`${t1.id}_r5`],w2=res[`${t2.id}_r5`],decided=w1||w2;
+      h+=`<div class="adm-mu">`;
+      h+=`<div class="am-team ${w1?'won':''} ${w2?'lost':''}" onclick="${decided?'':`recMU('${t1.id}','${t2.id}',5)`}"><span class="ams">${t1.seed}</span><span class="amn">${t1.name}</span></div>`;
+      h+=`<div class="am-vs">vs</div>`;
+      h+=`<div class="am-team ${w2?'won':''} ${w1?'lost':''}" onclick="${decided?'':`recMU('${t2.id}','${t1.id}',5)`}"><span class="ams">${t2.seed}</span><span class="amn">${t2.name}</span></div>`;
+      if(decided)h+=`<button class="adm-undo" onclick="undoMU('${t1.id}','${t2.id}',5)">undo</button>`;
       h+=`</div>`;
-    });h+=`</div>`;
-  });h+=`</div>`;document.getElementById("p-adm").innerHTML=h;
+    }
+    h+=`</div>`;
+  }
+  
+  const f4winners=T.filter(t=>res[`${t.id}_r5`]);
+  if(f4winners.length>=2){
+    h+=`<div class="adm-rd"><h3>Championship (&times;${RM[6]})</h3>`;
+    const t1=f4winners[0],t2=f4winners[1];
+    const w1=res[`${t1.id}_r6`],w2=res[`${t2.id}_r6`],decided=w1||w2;
+    h+=`<div class="adm-mu">`;
+    h+=`<div class="am-team ${w1?'won':''} ${w2?'lost':''}" onclick="${decided?'':`recMU('${t1.id}','${t2.id}',6)`}"><span class="ams">${t1.seed}</span><span class="amn">${t1.name}</span></div>`;
+    h+=`<div class="am-vs">vs</div>`;
+    h+=`<div class="am-team ${w2?'won':''} ${w1?'lost':''}" onclick="${decided?'':`recMU('${t2.id}','${t1.id}',6)`}"><span class="ams">${t2.seed}</span><span class="amn">${t2.name}</span></div>`;
+    if(decided)h+=`<button class="adm-undo" onclick="undoMU('${t1.id}','${t2.id}',6)">undo</button>`;
+    h+=`</div>`;
+    h+=`</div>`;
+  }
+  
+  h+=`</div>`;document.getElementById("p-adm").innerHTML=h;
 }
-function recW(id,r){db.ref(`groups/${S.gid}/results/${id}_r${r}`).set(true);}
-function recE(id){db.ref(`groups/${S.gid}/results/${id}_elim`).set(true);}
-function rmR(k){db.ref(`groups/${S.gid}/results/${k}`).remove();}
+
+function recMU(winnerId,loserId,round){
+  const updates={};
+  updates[`${winnerId}_r${round}`]=true;
+  updates[`${loserId}_elim`]=true;
+  db.ref(`groups/${S.gid}/results`).update(updates);
+}
+
+function undoMU(t1id,t2id,round){
+  if(!confirm("Undo this result?"))return;
+  const updates={};
+  updates[`${t1id}_r${round}`]=null;
+  updates[`${t2id}_r${round}`]=null;
+  updates[`${t1id}_elim`]=null;
+  updates[`${t2id}_elim`]=null;
+  // Also clear any downstream results
+  for(let r=round+1;r<=6;r++){
+    updates[`${t1id}_r${r}`]=null;
+    updates[`${t2id}_r${r}`]=null;
+  }
+  db.ref(`groups/${S.gid}/results`).update(updates);
+}
+
+// ═══ GROUPS TAB ═══
+function rGroups(){
+  let h=`<div style="max-width:500px;margin:0 auto">
+<div style="font-family:'Chakra Petch',sans-serif;font-size:1rem;text-transform:uppercase;color:var(--sky);text-align:center;margin-bottom:.6rem">Your Groups</div>`;
+  
+  // Show current group highlighted
+  h+=`<div id="groupsTabList"><div class="empty">Loading...</div></div>`;
+  
+  // Join new group inline
+  h+=`<div style="margin-top:1rem;border-top:1px solid var(--d3);padding-top:.8rem">
+<div class="t-label" style="text-align:center;margin-bottom:.3rem">Join Another Group</div>
+<div style="display:flex;gap:.3rem;max-width:320px;margin:0 auto">
+<input class="inp" id="groupsJoinCode" placeholder="6-letter code" maxlength="6" style="text-transform:uppercase;font-family:'IBM Plex Mono',monospace;letter-spacing:.15em;text-align:center"/>
+<button class="b-fire" onclick="joinFromGroupsTab()" style="white-space:nowrap">Join</button>
+</div></div>`;
+  
+  h+=`</div>`;
+  document.getElementById("p-groups").innerHTML=h;
+  
+  // Fetch all groups for this user
+  findMyGroups(S.me,groups=>{
+    const el=document.getElementById("groupsTabList");
+    if(!el)return;
+    if(!groups.length){el.innerHTML=`<div class="empty">No groups found</div>`;return;}
+    let gh="";
+    groups.forEach(g=>{
+      const isCurrent=g.gid===S.gid;
+      gh+=`<div class="mg-card ${isCurrent?'':''}}" onclick="${isCurrent?'':`switchGroup('${g.gid}')`}" style="${isCurrent?'border-left-color:var(--mint);background:var(--mint-bg);':''}cursor:pointer">
+<div class="mc-name">${g.name}${isCurrent?' \u2190 current':''}</div>
+<div class="mc-code">${g.code}</div>
+<div class="mc-status ${g.status}">${g.status}</div>
+<div style="font-size:.58rem;color:var(--g1)">${g.playerCount}/${g.size} players</div>
+</div>`;
+    });
+    el.innerHTML=gh;
+  });
+}
+
+function switchGroup(gid){
+  enterGroup(gid);
+  S.tab="draft";
+  render();
+}
+
+function joinFromGroupsTab(){
+  const code=(document.getElementById("groupsJoinCode")?.value||"").trim().toUpperCase();
+  if(code.length!==6)return alert("Enter a valid 6-letter code");
+  const gid=code.toLowerCase();
+  db.ref(`groups/${gid}`).once("value",snap=>{
+    const g=snap.val();
+    if(!g)return alert("Group not found.");
+    if(g.status!=="waiting"&&!g.players?.[S.me])return alert("Draft already started.");
+    const pc=Object.keys(g.players||{}).length;
+    if(pc>=g.size&&!g.players?.[S.me])return alert("Group is full.");
+    if(!g.players?.[S.me])db.ref(`groups/${gid}/players/${S.me}`).set({name:S.myName,joinedAt:Date.now(),order:pc});
+    enterGroup(gid);
+    S.tab="draft";
+    render();
+  });
+}
+
+// ═══ CHAT ═══
+function sendChat(){
+  const el=document.getElementById("chatMsg");
+  if(!el||!el.value.trim())return;
+  db.ref(`groups/${S.gid}/chat`).push({name:S.myName,text:el.value.trim(),ts:Date.now()});
+  el.value="";
+}
+
+function listenChat(){
+  if(!S.gid)return;
+  db.ref(`groups/${S.gid}/chat`).orderByChild("ts").limitToLast(50).on("value",snap=>{
+    const box=document.getElementById("chatBox");
+    if(!box)return;
+    const msgs=snap.val();
+    if(!msgs){box.innerHTML=`<div class="empty" style="font-size:.65rem;padding:.3rem">No messages yet</div>`;return;}
+    let h="";
+    Object.values(msgs).sort((a,b)=>a.ts-b.ts).forEach(m=>{
+      h+=`<div class="chat-msg"><span class="cm-name">${m.name}</span><span class="cm-text">${m.text.replace(/</g,'&lt;')}</span></div>`;
+    });
+    box.innerHTML=h;
+    box.scrollTop=box.scrollHeight;
+  });
+}
 
 // ═══ INIT ═══
 S.myName=localStorage.getItem("dg_name")||"";

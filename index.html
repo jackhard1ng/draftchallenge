@@ -548,7 +548,10 @@ function render(){
   if(!S.group)return;
   document.querySelectorAll(".pnl").forEach(p=>p.classList.remove("on"));
   showNav();
-  if(S.group.status==="waiting"){document.getElementById("p-wait").classList.add("on");rWait();return;}
+  if(S.group.status==="waiting"){
+    checkShuffle();
+    document.getElementById("p-wait").classList.add("on");rWait();return;
+  }
   const m={draft:"p-draft",lb:"p-lb",rost:"p-rost",brk:"p-brk",adm:"p-adm",groups:"p-groups"};
   document.getElementById(m[S.tab]||"p-draft").classList.add("on");
   if(S.tab==="groups"){rGroups();return;}
@@ -561,7 +564,10 @@ function rWait(){
   let h=`<div class="wr-top"><div class="wt-name">${g.name}</div><div class="wt-code">${g.code}</div>
 <div class="wt-meta">${pl.length}/${g.size} players &bull; ${timer}s timer &bull; Share the code</div></div>
 <div class="wr-row">`;
-  pl.forEach(([pid,p])=>h+=`<div class="wr-tag ${pid===g.commissioner?'com':''}"><span class="dot"></span>${p.name}${pid===g.commissioner?' \uD83D\uDC51':''}</div>`);
+  pl.forEach(([pid,p])=>{
+    const isMe=pid===S.me;
+    h+=`<div class="wr-tag ${pid===g.commissioner?'com':''}"><span class="dot"></span>${p.name}${pid===g.commissioner?' \uD83D\uDC51':''}${isMe?`<button onclick="renameSelf()" style="background:none;border:none;color:var(--g2);font-size:.6rem;padding:0 0 0 .3rem;cursor:pointer">\u270E</button>`:''}</div>`;
+  });
   h+=`</div>`;
   const order=g.draftState?.order||pl.map(([pid])=>pid);
   h+=`<div class="t-label" style="text-align:center;margin:.4rem 0 .2rem">Draft Order</div>`;
@@ -648,7 +654,7 @@ h+=`</tr></table><table style="margin-top:.2rem"><tr><th>Round</th><th>R64</th><
   // Full reference grid
   h+=`<div style="margin-top:.5rem;border-top:1px solid var(--d3);padding-top:.4rem">
 <div class="sr-t" style="margin-bottom:.2rem">Full Points Grid</div>
-<div style="overflow-x:auto"><table style="min-width:420px"><tr><th>Seed</th><th>R64</th><th>R32</th><th>S16</th><th>E8</th><th>F4</th><th>Final</th><th style="color:var(--gold)">Champ</th></tr>`;
+<div style="overflow-x:auto"><table style="min-width:420px"><tr><th>Seed</th><th>R32<div style="font-size:.4rem;color:var(--g1)">1 win</div></th><th>S16<div style="font-size:.4rem;color:var(--g1)">2 wins</div></th><th>E8<div style="font-size:.4rem;color:var(--g1)">3 wins</div></th><th>F4<div style="font-size:.4rem;color:var(--g1)">4 wins</div></th><th>Title Game<div style="font-size:.4rem;color:var(--g1)">5 wins</div></th><th style="color:var(--gold)">Champion<div style="font-size:.4rem;color:var(--gold)">6 wins</div></th></tr>`;
   for(let s=1;s<=16;s++){
     h+=`<tr><td style="color:var(--fire);font-weight:700">${s}</td>`;
     let cum=0;
@@ -704,34 +710,73 @@ function shuffleAndStart(){
   const g=S.group;
   if(Object.keys(g.players).length<2)return;
   const players=Object.keys(g.players);
-  const names={};for(const pid of players)names[pid]=g.players[pid].name;
+  const finalOrder=[...players].sort(()=>Math.random()-.5);
+  
+  // Write shuffle state to Firebase so all players see it
+  db.ref(`groups/${S.gid}/shuffleState`).set({
+    active:true,
+    finalOrder,
+    startedAt:Date.now(),
+    playerIds:players
+  });
+}
+
+// All clients watch for shuffle state and render the animation
+let shuffleRunning=false;
+function checkShuffle(){
+  const g=S.group;
+  if(!g?.shuffleState?.active||shuffleRunning)return;
+  shuffleRunning=true;
+  
+  const ss=g.shuffleState;
+  const players=ss.playerIds;
+  const finalOrder=ss.finalOrder;
+  const names={};for(const pid of players)names[pid]=g.players[pid]?.name||pid;
+  const elapsed=Date.now()-ss.startedAt;
+  
+  // If we joined late and animation should be done, skip it
+  if(elapsed>8000){
+    shuffleRunning=false;
+    if(S.me===g.commissioner){
+      db.ref(`groups/${S.gid}/shuffleState`).remove();
+      const timer=g.timer||30;
+      const tpp=Math.floor(T.length/g.size),tot=tpp*g.size,now=Date.now();
+      db.ref(`groups/${S.gid}`).update({
+        status:"drafting",
+        "draftState/order":finalOrder,
+        "draftState/currentPick":0,"draftState/totalPicks":tot,"draftState/teamsPerPlayer":tpp,
+        "draftState/startedAt":now,"draftState/timerEnd":now+timer*1000,"draftState/paused":false
+      });
+    }
+    return;
+  }
+  
+  // Remove any existing overlay
+  document.getElementById("shuffleOverlay")?.remove();
   
   // Create overlay
   const overlay=document.createElement("div");
   overlay.className="shuffle-overlay";
-  let oh=`<div class="so-title">Randomizing Draft Order</div><div class="shuffle-slots" id="shuffleSlots">`;
+  overlay.id="shuffleOverlay";
+  let oh=`<div class="so-title">Randomizing Draft Order</div><div class="shuffle-slots">`;
   players.forEach((_,i)=>oh+=`<div class="shuffle-slot" id="ss${i}"><span class="ss-num">${i+1}</span><span id="ssn${i}">...</span></div>`);
   oh+=`</div>`;
   overlay.innerHTML=oh;
   document.body.appendChild(overlay);
 
-  // Animate: rapid cycling of names for 2.5 seconds then lock one by one
-  let finalOrder=[...players].sort(()=>Math.random()-.5);
   let locked=0;
   const totalSlots=players.length;
   const cycleSpeed=80;
-  let elapsed=0;
+  let localElapsed=0;
   
   const interval=setInterval(()=>{
-    elapsed+=cycleSpeed;
-    // Cycle unlocked slots with random names
+    localElapsed+=cycleSpeed;
     for(let i=locked;i<totalSlots;i++){
       const el=document.getElementById(`ssn${i}`);
       if(el)el.textContent=names[players[Math.floor(Math.random()*players.length)]];
     }
     
-    // Lock slots one at a time after initial shuffle period
-    if(elapsed>1500&&elapsed%(Math.max(300,600-locked*100))<cycleSpeed){
+    if(localElapsed>1500&&localElapsed%(Math.max(300,600-locked*100))<cycleSpeed){
       if(locked<totalSlots){
         const el=document.getElementById(`ssn${locked}`);
         const slot=document.getElementById(`ss${locked}`);
@@ -741,20 +786,23 @@ function shuffleAndStart(){
       }
     }
     
-    // Done
     if(locked>=totalSlots){
       clearInterval(interval);
       setTimeout(()=>{
         overlay.remove();
-        // Save order and start draft
-        const timer=g.timer||30;
-        const tpp=Math.floor(T.length/g.size),tot=tpp*g.size,now=Date.now();
-        db.ref(`groups/${S.gid}`).update({
-          status:"drafting",
-          "draftState/order":finalOrder,
-          "draftState/currentPick":0,"draftState/totalPicks":tot,"draftState/teamsPerPlayer":tpp,
-          "draftState/startedAt":now,"draftState/timerEnd":now+timer*1000,"draftState/paused":false
-        });
+        shuffleRunning=false;
+        // Only commissioner triggers the draft start
+        if(S.me===S.group?.commissioner){
+          db.ref(`groups/${S.gid}/shuffleState`).remove();
+          const timer=S.group.timer||30;
+          const tpp=Math.floor(T.length/S.group.size),tot=tpp*S.group.size,now=Date.now();
+          db.ref(`groups/${S.gid}`).update({
+            status:"drafting",
+            "draftState/order":finalOrder,
+            "draftState/currentPick":0,"draftState/totalPicks":tot,"draftState/teamsPerPlayer":tpp,
+            "draftState/startedAt":now,"draftState/timerEnd":now+timer*1000,"draftState/paused":false
+          });
+        }
       },800);
     }
   },cycleSpeed);
@@ -1099,6 +1147,23 @@ function joinFromGroupsTab(){
     enterGroup(gid);
     S.tab="draft";
     render();
+  });
+}
+
+// ═══ RENAME ═══
+function renameSelf(){
+  const newName=prompt("Enter your new display name:",S.myName);
+  if(!newName||!newName.trim())return;
+  const trimmed=newName.trim();
+  S.myName=trimmed;
+  localStorage.setItem("dg_name",trimmed);
+  // Update name in current group
+  db.ref(`groups/${S.gid}/players/${S.me}/name`).set(trimmed);
+  // Also update in all other groups
+  findMyGroups(S.me,groups=>{
+    groups.forEach(g=>{
+      if(g.gid!==S.gid)db.ref(`groups/${g.gid}/players/${S.me}/name`).set(trimmed);
+    });
   });
 }
 

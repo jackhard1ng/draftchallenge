@@ -608,12 +608,77 @@ ${[15,30,45,60,90,120].map(v=>`<option value="${v}" ${timer===v?'selected':''}>$
 }
 
 function sRef(){
+  // Pre-compute the full points table for every seed at every exit point
+  const exits=["R64","R32","S16","E8","F4","Final","Champ"];
+  // Points = sum of base*mult for each win
+  // "Lose in R64" = 0 wins = 0 pts
+  // "Lose in R32" = 1 win (R64) = base*1
+  // "Lose in S16" = 2 wins = base*1 + base*1
+  // "Lose in E8" = 3 wins = base*1 + base*1 + base*2
+  // etc.
+  // "Champ" = 6 wins
+  
   let h=`<div class="sref"><div class="sr-t">Scoring</div>
 <table><tr><th>Seed</th>`;for(let s=1;s<=16;s++)h+=`<th>${s}</th>`;
 h+=`</tr><tr><td style="color:var(--g1)">Base</td>`;for(let s=1;s<=16;s++)h+=`<td>${SP[s]}</td>`;
 h+=`</tr></table><table style="margin-top:.2rem"><tr><th>Round</th><th>R64</th><th>R32</th><th>S16</th><th>E8</th><th>F4</th><th>Final</th></tr>
 <tr><td style="color:var(--g1)">Mult</td><td>&times;1</td><td>&times;1</td><td>&times;2</td><td>&times;3</td><td>&times;4</td><td>&times;5</td></tr></table>
-<div class="sr-note">Pts per win = Base &times; Mult &bull; 12-seed S16 win = 7&times;2 = 14pts</div></div>`;return h;
+<div class="sr-note">Pts per win = Base &times; Mult &bull; 12-seed S16 win = 7&times;2 = 14pts</div>`;
+
+  // Calculator
+  h+=`<div style="margin-top:.6rem;border-top:1px solid var(--d3);padding-top:.5rem">
+<div class="sr-t">Points Calculator</div>
+<div style="display:flex;gap:.3rem;justify-content:center;align-items:center;flex-wrap:wrap;margin:.3rem 0">
+<select id="calcSeed" onchange="updateCalc()" style="background:var(--d2);border:1px solid var(--d4);color:var(--white);padding:.3rem .4rem;font-size:.78rem;font-family:'IBM Plex Mono',monospace">`;
+  for(let s=1;s<=16;s++)h+=`<option value="${s}">${s}-seed (${SP[s]}pt base)</option>`;
+  h+=`</select>
+<select id="calcExit" onchange="updateCalc()" style="background:var(--d2);border:1px solid var(--d4);color:var(--white);padding:.3rem .4rem;font-size:.78rem;font-family:'IBM Plex Mono',monospace">
+<option value="0">Lose in R64 (0 wins)</option>
+<option value="1">Lose in R32 (1 win)</option>
+<option value="2">Lose in S16 (2 wins)</option>
+<option value="3">Lose in E8 (3 wins)</option>
+<option value="4">Lose in F4 (4 wins)</option>
+<option value="5">Lose in Final (5 wins)</option>
+<option value="6">Win it all (6 wins)</option>
+</select></div>
+<div id="calcResult" style="text-align:center;font-family:'Chakra Petch',sans-serif;font-size:1.4rem;font-weight:700;color:var(--mint);margin:.2rem 0">0 pts</div>
+<div id="calcBreak" style="text-align:center;font-size:.58rem;color:var(--g2);font-family:'IBM Plex Mono',monospace"></div>
+</div>`;
+
+  // Full reference grid
+  h+=`<div style="margin-top:.5rem;border-top:1px solid var(--d3);padding-top:.4rem">
+<div class="sr-t" style="margin-bottom:.2rem">Full Points Grid</div>
+<div style="overflow-x:auto"><table style="min-width:420px"><tr><th>Seed</th><th>R64</th><th>R32</th><th>S16</th><th>E8</th><th>F4</th><th>Final</th><th style="color:var(--gold)">Champ</th></tr>`;
+  for(let s=1;s<=16;s++){
+    h+=`<tr><td style="color:var(--fire);font-weight:700">${s}</td>`;
+    let cum=0;
+    for(let w=1;w<=6;w++){
+      cum+=SP[s]*(RM[w]||1);
+      h+=`<td${w===6?' style="color:var(--gold);font-weight:700"':''}>${cum}</td>`;
+    }
+    h+=`</tr>`;
+  }
+  h+=`</table></div>
+<div class="sr-note">Values show cumulative points if team wins through that round</div>
+</div>`;
+
+  h+=`</div>`;return h;
+}
+
+function updateCalc(){
+  const seed=parseInt(document.getElementById("calcSeed")?.value||1);
+  const wins=parseInt(document.getElementById("calcExit")?.value||0);
+  const base=SP[seed];
+  let total=0,parts=[];
+  const rdNames=["R64","R32","S16","E8","F4","Final"];
+  for(let w=1;w<=wins;w++){
+    const pts=base*(RM[w]||1);
+    total+=pts;
+    parts.push(`${rdNames[w-1]}: ${base}&times;${RM[w]}=${pts}`);
+  }
+  document.getElementById("calcResult").textContent=`${total} pts`;
+  document.getElementById("calcResult").style.color=total>0?'var(--mint)':'var(--g2)';
+  document.getElementById("calcBreak").innerHTML=wins===0?'No wins = no points':parts.join(' + ');
 }
 
 function updTimer(v){db.ref(`groups/${S.gid}/timer`).set(parseInt(v));}

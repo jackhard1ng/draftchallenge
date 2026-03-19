@@ -283,6 +283,33 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--black);color:var(--
 .sref td{text-align:center;padding:.12rem .2rem;color:var(--g2)}
 .sref .sr-note{font-size:.52rem;color:var(--g1);text-align:center;margin-top:.25rem;font-style:italic}
 
+/* ═══ SIDE BETS ═══ */
+.bets-wrap{max-width:700px;margin:0 auto}
+.bets-title{font-family:'Chakra Petch',sans-serif;font-size:1.1rem;text-transform:uppercase;color:var(--gold);text-align:center;margin-bottom:.1rem;letter-spacing:.04em}
+.bets-sub{font-size:.65rem;color:var(--g2);text-align:center;margin-bottom:.8rem}
+.bet-card{background:var(--d1);border:1px solid var(--d3);margin-bottom:6px;overflow:hidden}
+.bet-top{display:flex;align-items:center;padding:.5rem .6rem;gap:.5rem;cursor:pointer;transition:background .12s}
+.bet-top:hover{background:var(--d2)}
+.bet-p{flex:1;text-align:center}
+.bet-p .bp-name{font-family:'Chakra Petch',sans-serif;font-weight:700;font-size:.9rem;text-transform:uppercase}
+.bet-p .bp-score{font-family:'IBM Plex Mono',monospace;font-size:1.3rem;font-weight:700;color:var(--mint);margin-top:.1rem}
+.bet-p .bp-score.losing{color:var(--g2)}
+.bet-p .bp-score.winning{color:var(--mint)}
+.bet-vs{font-family:'Chakra Petch',sans-serif;font-size:.7rem;color:var(--g1);display:flex;flex-direction:column;align-items:center;gap:.1rem}
+.bet-amt{font-family:'IBM Plex Mono',monospace;font-size:.75rem;font-weight:700;color:var(--gold);background:var(--gold-bg);padding:.15rem .4rem;border:1px solid rgba(255,184,0,.15)}
+.bet-detail{display:none;border-top:1px solid var(--d3);padding:.4rem .5rem}
+.bet-detail.open{display:block}
+.bet-cols{display:grid;grid-template-columns:1fr 1fr;gap:3px}
+.bd-team{display:flex;align-items:center;gap:.25rem;padding:.15rem .3rem;font-size:.65rem;background:var(--d2)}
+.bd-team .bds{font-family:'IBM Plex Mono',monospace;font-size:.52rem;color:var(--g1);min-width:14px;text-align:center}
+.bd-team .bdn{flex:1;font-weight:500}
+.bd-team .bdp{font-family:'Chakra Petch',sans-serif;font-size:.7rem;color:var(--mint);min-width:18px;text-align:right}
+.bd-team.dead{opacity:.2;text-decoration:line-through}
+.bd-team.alive{border-left:2px solid var(--mint)}
+.bet-bar{height:4px;display:flex;margin-top:.3rem}
+.bet-bar .bb-l{background:var(--fire);transition:width .3s}
+.bet-bar .bb-r{background:var(--sky);transition:width .3s}
+
 .empty{text-align:center;padding:1.5rem;color:var(--g2);font-size:.82rem}
 .empty b{color:var(--fire)}
 
@@ -303,6 +330,7 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--black);color:var(--
 <div class="pnl" id="p-brk"></div>
 <div class="pnl" id="p-adm"></div>
 <div class="pnl" id="p-groups"></div>
+<div class="pnl" id="p-bets"></div>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
@@ -513,7 +541,7 @@ function joinGroup(){
     if(g.status!=="waiting"&&!g.players?.[S.me])return alert("Draft already started.");
     const pc=Object.keys(g.players||{}).length;
     if(pc>=g.size&&!g.players?.[S.me])return alert("Group is full.");
-    if(!g.players?.[S.me])db.ref(`groups/${gid}/players/${S.me}`).set({name:nm,joinedAt:Date.now(),order:pc});
+    if(!g.players?.[S.me])db.ref(`groups/${gid}/players/${S.me}`).set({name:S.myName,joinedAt:Date.now(),order:pc});
     enterGroup(gid);
   });
 }
@@ -537,9 +565,9 @@ function showNav(){
   const isCom=S.me===S.group?.commissioner;
   let h=`<button class="back" onclick="backToGate()">\u2190</button>`;
   h+=`<button class="ni ${S.tab==='groups'?'on':''}" data-t="groups" onclick="stab('groups')" style="color:var(--sky)">Groups</button>`;
-  const tabs=[["draft","Draft"],["lb","Standings"],["rost","Rosters"],["brk","Bracket"]];
+  const tabs=[["draft","Draft"],["lb","Standings"],["rost","Rosters"],["brk","Bracket"],["bets","Side Bets"]];
   if(isAdmin)tabs.push(["adm","Admin"]);
-  tabs.forEach(([k,l])=>h+=`<button class="ni ${S.tab===k?'on':''} ${k==='adm'?'adm':''}" data-t="${k}" onclick="stab('${k}')">${l}</button>`);
+  tabs.forEach(([k,l])=>h+=`<button class="ni ${S.tab===k?'on':''} ${k==='adm'?'adm':''} ${k==='bets'?'adm':''}" data-t="${k}" onclick="stab('${k}')">${l}</button>`);
   document.getElementById("navItems").innerHTML=h;
 }
 function stab(t){S.tab=t;document.querySelectorAll(".ni").forEach(e=>e.classList.toggle("on",e.dataset.t===t));render();}
@@ -552,9 +580,10 @@ function render(){
     checkShuffle();
     document.getElementById("p-wait").classList.add("on");rWait();return;
   }
-  const m={draft:"p-draft",lb:"p-lb",rost:"p-rost",brk:"p-brk",adm:"p-adm",groups:"p-groups"};
+  const m={draft:"p-draft",lb:"p-lb",rost:"p-rost",brk:"p-brk",adm:"p-adm",groups:"p-groups",bets:"p-bets"};
   document.getElementById(m[S.tab]||"p-draft").classList.add("on");
   if(S.tab==="groups"){rGroups();return;}
+  if(S.tab==="bets"){rBets();return;}
   ({draft:rDraft,lb:rLB,rost:rRost,brk:rBrk,adm:rAdm})[S.tab]?.();
 }
 
@@ -636,20 +665,22 @@ h+=`</tr></table><table style="margin-top:.2rem"><tr><th>Round</th><th>R64</th><
 <div class="sr-t">Points Calculator</div>
 <div style="display:flex;gap:.3rem;justify-content:center;align-items:center;flex-wrap:wrap;margin:.3rem 0">
 <select id="calcSeed" onchange="updateCalc()" style="background:var(--d2);border:1px solid var(--d4);color:var(--white);padding:.3rem .4rem;font-size:.78rem;font-family:'IBM Plex Mono',monospace">`;
-  for(let s=1;s<=16;s++)h+=`<option value="${s}">${s}-seed (${SP[s]}pt base)</option>`;
+  for(let s=1;s<=16;s++)h+=`<option value="${s}" ${s===_calcSeed?'selected':''}>${s}-seed (${SP[s]}pt base)</option>`;
   h+=`</select>
 <select id="calcExit" onchange="updateCalc()" style="background:var(--d2);border:1px solid var(--d4);color:var(--white);padding:.3rem .4rem;font-size:.78rem;font-family:'IBM Plex Mono',monospace">
-<option value="0">Lose in R64 (0 wins)</option>
-<option value="1">Lose in R32 (1 win)</option>
-<option value="2">Lose in S16 (2 wins)</option>
-<option value="3">Lose in E8 (3 wins)</option>
-<option value="4">Lose in F4 (4 wins)</option>
-<option value="5">Lose in Final (5 wins)</option>
-<option value="6">Win it all (6 wins)</option>
+<option value="0" ${_calcWins===0?'selected':''}>Lose in R64 (0 wins)</option>
+<option value="1" ${_calcWins===1?'selected':''}>Lose in R32 (1 win)</option>
+<option value="2" ${_calcWins===2?'selected':''}>Lose in S16 (2 wins)</option>
+<option value="3" ${_calcWins===3?'selected':''}>Lose in E8 (3 wins)</option>
+<option value="4" ${_calcWins===4?'selected':''}>Lose in F4 (4 wins)</option>
+<option value="5" ${_calcWins===5?'selected':''}>Lose in Final (5 wins)</option>
+<option value="6" ${_calcWins===6?'selected':''}>Win it all (6 wins)</option>
 </select></div>
 <div id="calcResult" style="text-align:center;font-family:'Chakra Petch',sans-serif;font-size:1.4rem;font-weight:700;color:var(--mint);margin:.2rem 0">0 pts</div>
 <div id="calcBreak" style="text-align:center;font-size:.58rem;color:var(--g2);font-family:'IBM Plex Mono',monospace"></div>
 </div>`;
+  // Auto-trigger calc display after render
+  setTimeout(updateCalc,50);
 
   // Full reference grid
   h+=`<div style="margin-top:.5rem;border-top:1px solid var(--d3);padding-top:.4rem">
@@ -671,20 +702,25 @@ h+=`</tr></table><table style="margin-top:.2rem"><tr><th>Round</th><th>R64</th><
   h+=`</div>`;return h;
 }
 
+let _calcSeed=1,_calcWins=0;
 function updateCalc(){
-  const seed=parseInt(document.getElementById("calcSeed")?.value||1);
-  const wins=parseInt(document.getElementById("calcExit")?.value||0);
-  const base=SP[seed];
+  const seedEl=document.getElementById("calcSeed");
+  const exitEl=document.getElementById("calcExit");
+  if(!seedEl||!exitEl)return;
+  _calcSeed=parseInt(seedEl.value||1);
+  _calcWins=parseInt(exitEl.value||0);
+  const base=SP[_calcSeed];
   let total=0,parts=[];
   const rdNames=["R64","R32","S16","E8","F4","Final"];
-  for(let w=1;w<=wins;w++){
+  for(let w=1;w<=_calcWins;w++){
     const pts=base*(RM[w]||1);
     total+=pts;
-    parts.push(`${rdNames[w-1]}: ${base}&times;${RM[w]}=${pts}`);
+    parts.push(`${rdNames[w-1]}: ${base}\u00d7${RM[w]}=${pts}`);
   }
-  document.getElementById("calcResult").textContent=`${total} pts`;
-  document.getElementById("calcResult").style.color=total>0?'var(--mint)':'var(--g2)';
-  document.getElementById("calcBreak").innerHTML=wins===0?'No wins = no points':parts.join(' + ');
+  const resEl=document.getElementById("calcResult");
+  const brkEl=document.getElementById("calcBreak");
+  if(resEl){resEl.textContent=`${total} pts`;resEl.style.color=total>0?'var(--mint)':'var(--g2)';}
+  if(brkEl)brkEl.innerHTML=_calcWins===0?'No wins = no points':parts.join(' + ');
 }
 
 function updTimer(v){db.ref(`groups/${S.gid}/timer`).set(parseInt(v));}
@@ -1087,6 +1123,109 @@ function undoMU(t1id,t2id,round){
     updates[`${t2id}_r${r}`]=null;
   }
   db.ref("results").update(updates);
+}
+
+// ═══ SIDE BETS ═══
+const BETS=[
+  {p1:"jack",p2:"gunnar_anderson",amt:25},
+  {p1:"jack",p2:"isaac_willis",amt:75},
+  {p1:"jack",p2:"braxton_scott",amt:25},
+  {p1:"frederic",p2:"gunnar_anderson",amt:25},
+  {p1:"braxton_scott",p2:"frederic",amt:25},
+  {p1:"isaac_willis",p2:"gunnar_anderson",amt:25},
+  {p1:"isaac_willis",p2:"braxton_scott",amt:25},
+  {p1:"frederic",p2:"isaac_willis",amt:25},
+];
+
+function rBets(){
+  const g=S.group;if(!g)return;
+  const picks=g.draftState?.picks||{},pl=g.players||{},res=GRES;
+  
+  // Build rosters with scores
+  const rosters={};const totals={};
+  for(const pid of Object.keys(pl)){rosters[pid]=[];totals[pid]=0;}
+  for(const pk of Object.values(picks)){
+    const t=T.find(x=>x.id===pk.teamId);if(!t)continue;
+    const pts=tPts(pk.teamId,res);
+    const dead=res?.[`${pk.teamId}_elim`];
+    const w=[];for(let r=1;r<=6;r++)if(res?.[`${pk.teamId}_r${r}`])w.push(r);
+    if(rosters[pk.playerId]){
+      rosters[pk.playerId].push({t,pts,dead,wins:w.length});
+      totals[pk.playerId]=(totals[pk.playerId]||0)+pts;
+    }
+  }
+  
+  // Sort each roster by points desc
+  for(const pid of Object.keys(rosters))rosters[pid].sort((a,b)=>b.pts-a.pts||(a.t?.seed||99)-(b.t?.seed||99));
+  
+  let totalAction=0;
+  BETS.forEach(b=>totalAction+=b.amt);
+  
+  let h=`<div class="bets-wrap">
+<div class="bets-title">\uD83D\uDCB0 Side Bets</div>
+<div class="bets-sub">${BETS.length} bets &bull; $${totalAction} total action &bull; Click to expand</div>`;
+
+  BETS.forEach((bet,i)=>{
+    const n1=pl[bet.p1]?.name||bet.p1;
+    const n2=pl[bet.p2]?.name||bet.p2;
+    const s1=totals[bet.p1]||0;
+    const s2=totals[bet.p2]||0;
+    const diff=Math.abs(s1-s2);
+    const total=s1+s2||1;
+    const pct1=Math.round(s1/total*100)||50;
+    const pct2=100-pct1;
+    const p1col=s1>s2?"winning":s1<s2?"losing":"";
+    const p2col=s2>s1?"winning":s2<s1?"losing":"";
+    
+    h+=`<div class="bet-card">
+<div class="bet-top" onclick="document.getElementById('bd${i}').classList.toggle('open')">
+<div class="bet-p"><div class="bp-name">${n1}</div><div class="bp-score ${p1col}">${s1}</div></div>
+<div class="bet-vs"><div class="bet-amt">$${bet.amt}</div><span>vs</span></div>
+<div class="bet-p"><div class="bp-name">${n2}</div><div class="bp-score ${p2col}">${s2}</div></div>
+</div>
+<div class="bet-bar"><div class="bb-l" style="width:${pct1}%"></div><div class="bb-r" style="width:${pct2}%"></div></div>
+<div class="bet-detail" id="bd${i}">
+<div class="bet-cols">
+<div>`;
+    // P1 teams
+    (rosters[bet.p1]||[]).forEach(r=>{
+      h+=`<div class="bd-team ${r.dead?'dead':''} ${!r.dead&&r.wins>0?'alive':''}"><span class="bds">${r.t.seed}</span><span class="bdn">${r.t.name}</span><span class="bdp">${r.pts||''}</span></div>`;
+    });
+    h+=`</div><div>`;
+    // P2 teams
+    (rosters[bet.p2]||[]).forEach(r=>{
+      h+=`<div class="bd-team ${r.dead?'dead':''} ${!r.dead&&r.wins>0?'alive':''}"><span class="bds">${r.t.seed}</span><span class="bdn">${r.t.name}</span><span class="bdp">${r.pts||''}</span></div>`;
+    });
+    h+=`</div></div>`;
+    
+    // Status line
+    if(s1===s2)h+=`<div style="text-align:center;font-size:.6rem;color:var(--g2);margin-top:.3rem">Tied</div>`;
+    else h+=`<div style="text-align:center;font-size:.6rem;color:var(--g2);margin-top:.3rem">${s1>s2?n1:n2} leads by ${diff}</div>`;
+    
+    h+=`</div></div>`;
+  });
+  
+  // Summary: who owes what
+  h+=`<div style="margin-top:1rem;border-top:1px solid var(--d3);padding-top:.6rem">
+<div style="font-family:'Chakra Petch',sans-serif;font-size:.75rem;color:var(--g2);text-transform:uppercase;letter-spacing:.1em;text-align:center;margin-bottom:.4rem">Current Ledger (if it ended now)</div>`;
+  
+  const ledger={};
+  for(const pid of Object.keys(pl))ledger[pid]=0;
+  BETS.forEach(b=>{
+    const s1=totals[b.p1]||0,s2=totals[b.p2]||0;
+    if(s1>s2){ledger[b.p1]=(ledger[b.p1]||0)+b.amt;ledger[b.p2]=(ledger[b.p2]||0)-b.amt;}
+    else if(s2>s1){ledger[b.p2]=(ledger[b.p2]||0)+b.amt;ledger[b.p1]=(ledger[b.p1]||0)-b.amt;}
+  });
+  
+  Object.entries(ledger).filter(([_,v])=>v!==0).sort((a,b)=>b[1]-a[1]).forEach(([pid,v])=>{
+    const name=pl[pid]?.name||pid;
+    const color=v>0?'var(--mint)':'var(--fire)';
+    h+=`<div style="display:flex;justify-content:space-between;padding:.2rem .5rem;font-size:.78rem;border-bottom:1px solid var(--d2)">
+<span>${name}</span><span style="font-family:'IBM Plex Mono',monospace;font-weight:700;color:${color}">${v>0?'+':'-'}$${Math.abs(v)}</span></div>`;
+  });
+  
+  h+=`</div></div>`;
+  document.getElementById("p-bets").innerHTML=h;
 }
 
 // ═══ GROUPS TAB ═══
